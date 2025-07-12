@@ -8,13 +8,11 @@ import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, 
 export function InventoryReports() {
   const { products } = useData();
 
-  // Calculate metrics
   const totalProducts = products.length;
   const totalInventoryValue = products.reduce((sum, product) => sum + (product.stock * product.cost), 0);
   const lowStockProducts = products.filter(product => product.stock <= product.reorderLevel && product.stock > 0);
   const outOfStockProducts = products.filter(product => product.stock === 0);
 
-  // Category breakdown
   const categoryData = products.reduce((acc, product) => {
     const value = product.stock * product.cost;
     acc[product.category] = (acc[product.category] || 0) + value;
@@ -27,7 +25,6 @@ export function InventoryReports() {
     color: ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'][index % 6],
   }));
 
-  // Stock level analysis
   const stockAnalysis = products.map(product => ({
     name: product.name,
     stock: product.stock,

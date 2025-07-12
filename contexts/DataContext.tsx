@@ -29,6 +29,15 @@ export interface InvoiceItem {
   amount: number;
 }
 
+export interface ExpenseItem {
+  id: string;
+  name: string;
+  amount: number;
+  currency: string;
+  category: string;
+  description: string;
+}
+
 export interface Expense {
   id: string;
   vendor: string;
@@ -41,6 +50,7 @@ export interface Expense {
   receiptData?: any;
   type: 'expense' | 'income';
   currency: string;
+  items: ExpenseItem[];
   createdAt: string;
 }
 
@@ -94,6 +104,9 @@ interface DataContextType {
   addExpense: (expense: Omit<Expense, 'id' | 'createdAt'>) => void;
   updateExpense: (id: string, expense: Partial<Expense>) => void;
   deleteExpense: (id: string) => void;
+  addExpenseItem: (expenseId: string, item: Omit<ExpenseItem, 'id'>) => void;
+  updateExpenseItem: (expenseId: string, itemId: string, item: Partial<ExpenseItem>) => void;
+  deleteExpenseItem: (expenseId: string, itemId: string) => void;
   addBankTransaction: (transaction: Omit<BankTransaction, 'id'>) => void;
   updateBankTransaction: (id: string, transaction: Partial<BankTransaction>) => void;
   addEmployee: (employee: Omit<Employee, 'id'>) => void;
@@ -102,6 +115,10 @@ interface DataContextType {
   addProduct: (product: Omit<Product, 'id'>) => void;
   updateProduct: (id: string, product: Partial<Product>) => void;
   deleteProduct: (id: string) => void;
+  setExpenses: (expenses: Expense[]) => void;
+  setInvoices: (invoices: Invoice[]) => void;
+  getTotalExpenses: () => number;
+  getTotalRevenue: () => number;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -130,6 +147,14 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setInvoices(prev => prev.filter(inv => inv.id !== id));
   };
 
+  const getTotalRevenue = () => {
+    return invoices.reduce((acc, invoice) => acc + invoice.total, 0);
+  };
+
+  const getTotalExpenses = () => {
+    return expenses.reduce((acc, expense) => acc + expense.amount, 0);
+  };
+
   const addExpense = (expense: Omit<Expense, 'id' | 'createdAt'>) => {
     const newExpense: Expense = {
       ...expense,
@@ -145,6 +170,27 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const deleteExpense = (id: string) => {
     setExpenses(prev => prev.filter(exp => exp.id !== id));
+  };
+
+  const addExpenseItem = (expenseId: string, item: Omit<ExpenseItem, 'id'>) => {
+    setExpenses(prev => prev.map(exp => exp.id === expenseId ? {
+      ...exp,
+      items: [...exp.items, { ...item, id: Date.now().toString() }],
+    } : exp));
+  };
+
+  const updateExpenseItem = (expenseId: string, itemId: string, item: Partial<ExpenseItem>) => {
+    setExpenses(prev => prev.map(exp => exp.id === expenseId ? {
+      ...exp,
+      items: exp.items.map(i => i.id === itemId ? { ...i, ...item } : i),
+    } : exp));
+  };
+
+  const deleteExpenseItem = (expenseId: string, itemId: string) => {
+    setExpenses(prev => prev.map(exp => exp.id === expenseId ? {
+      ...exp,
+      items: exp.items.filter(i => i.id !== itemId),
+    } : exp));
   };
 
   const addBankTransaction = (transaction: Omit<BankTransaction, 'id'>) => {
@@ -204,6 +250,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
       addExpense,
       updateExpense,
       deleteExpense,
+      addExpenseItem,
+      updateExpenseItem,
+      deleteExpenseItem,
       addBankTransaction,
       updateBankTransaction,
       addEmployee,
@@ -212,6 +261,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
       addProduct,
       updateProduct,
       deleteProduct,
+      setExpenses,
+      setInvoices,
+      getTotalExpenses,
+      getTotalRevenue,
     }}>
       {children}
     </DataContext.Provider>

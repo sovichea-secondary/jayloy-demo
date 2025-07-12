@@ -1,20 +1,33 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useData } from '@/contexts/DataContext';
-import { Download, TrendingUp, TrendingDown, DollarSign } from 'lucide-react';
+import { Download, TrendingUp, TrendingDown, DollarSign, FileText, FileSpreadsheet } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from 'recharts';
-import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns';
+import { format, startOfMonth, endOfMonth, subMonths, parseISO } from 'date-fns';
+import { 
+  exportToPDF, 
+  exportInvoicesToCSV, 
+  exportExpensesToCSV, 
+  exportProfitLossToCSV,
+  generatePDFContent,
+  createPDFElement,
+  type ReportMetrics,
+  type MonthlyData,
+  type CategoryData
+} from '@/lib/export-utils';
+import { generateSampleData } from '@/lib/sample-data';
+import { calculateFinanceMetrics } from '@/lib/finance-metrics';
 
 export function FinancialReports() {
-  const { invoices, expenses } = useData();
+  const { invoices, expenses, setExpenses, setInvoices } = useData();
   const [selectedPeriod, setSelectedPeriod] = useState('current-month');
+  const [isExporting, setIsExporting] = useState(false);
 
-  // Calculate date range based on selected period
   const getDateRange = () => {
     const now = new Date();
     switch (selectedPeriod) {
@@ -33,32 +46,9 @@ export function FinancialReports() {
   };
 
   const { start, end } = getDateRange();
+  const metrics = calculateFinanceMetrics(invoices, expenses, { start, end, months: 6 });
 
-  // Filter data by date range
-  const filteredInvoices = invoices.filter(inv => {
-    const date = new Date(inv.issueDate);
-    return date >= start && date <= end;
-  });
-
-  const filteredExpenses = expenses.filter(exp => {
-    const date = new Date(exp.date);
-    return date >= start && date <= end;
-  });
-
-  // Calculate metrics
-  const totalRevenue = filteredInvoices
-    .filter(inv => inv.status === 'paid')
-    .reduce((sum, inv) => sum + inv.total, 0);
-
-  const totalExpenses = filteredExpenses
-    .filter(exp => exp.type === 'expense')
-    .reduce((sum, exp) => sum + exp.amount, 0);
-
-  const netProfit = totalRevenue - totalExpenses;
-  const profitMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
-
-  // Prepare chart data
-  const monthlyData = [];
+  const monthlyData: MonthlyData[] = [];
   for (let i = 5; i >= 0; i--) {
     const month = subMonths(new Date(), i);
     const monthStart = startOfMonth(month);
@@ -66,14 +56,14 @@ export function FinancialReports() {
     
     const monthRevenue = invoices
       .filter(inv => {
-        const date = new Date(inv.issueDate);
+        const date = parseISO(inv.issueDate);
         return date >= monthStart && date <= monthEnd && inv.status === 'paid';
       })
       .reduce((sum, inv) => sum + inv.total, 0);
 
     const monthExpenses = expenses
       .filter(exp => {
-        const date = new Date(exp.date);
+        const date = parseISO(exp.date);
         return date >= monthStart && date <= monthEnd && exp.type === 'expense';
       })
       .reduce((sum, exp) => sum + exp.amount, 0);
@@ -86,22 +76,81 @@ export function FinancialReports() {
     });
   }
 
-  // Expense categories for pie chart
-  const expenseCategories = filteredExpenses
+  const expenseCategories = expenses
     .filter(exp => exp.type === 'expense')
     .reduce((acc, exp) => {
       acc[exp.category] = (acc[exp.category] || 0) + exp.amount;
       return acc;
     }, {} as Record<string, number>);
 
-  const categoryData = Object.entries(expenseCategories).map(([name, value], index) => ({
+  const categoryData: CategoryData[] = Object.entries(expenseCategories).map(([name, value], index) => ({
     name,
     value,
     color: ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'][index % 6],
   }));
 
-  const handleExportPDF = (reportType: string) => {
-    alert(`Exporting ${reportType} report as PDF...`);
+  const handleExportPDF = async (reportType: string) => {
+    setIsExporting(true);
+    try {
+      const content = generatePDFContent(
+        reportType,
+        metrics,
+        monthlyData,
+        categoryData,
+        selectedPeriod
+      );
+      
+      const elementId = `pdf-export-${Date.now()}`;
+      createPDFElement(content, elementId);
+      
+      await exportToPDF(elementId, `${reportType.toLowerCase().replace(/\s+/g, '_')}_${selectedPeriod.replace('-', '_')}`);
+    } catch (error) {
+      console.error('Error exporting PDF:', error);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleExportCSV = (reportType: string) => {
+    try {
+      switch (reportType) {
+        case 'invoices':
+          exportInvoicesToCSV(invoices, selectedPeriod);
+          break;
+        case 'expenses':
+          exportExpensesToCSV(expenses, selectedPeriod);
+          break;
+        case 'profit-loss':
+          exportProfitLossToCSV(monthlyData, metrics, selectedPeriod);
+          break;
+        default:
+          console.error('Unknown report type for CSV export');
+      }
+    } catch (error) {
+      console.error('Error exporting CSV:', error);
+    }
+  };
+
+  const getPeriodDisplayName = () => {
+    switch (selectedPeriod) {
+      case 'current-month':
+        return 'Current Month';
+      case 'last-month':
+        return 'Last Month';
+      case 'last-3-months':
+        return 'Last 3 Months';
+      case 'ytd':
+        return 'Year to Date';
+      default:
+        return 'Current Month';
+    }
+  };
+
+  const handleGenerateSampleData = () => {
+    const sampleData = generateSampleData();
+    setExpenses(sampleData.expenses);
+    setInvoices(sampleData.invoices);
+    alert('Sample data generated! You can now test the reports with real data.');
   };
 
   return (
@@ -110,21 +159,30 @@ export function FinancialReports() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Financial Reports</h1>
           <p className="text-gray-600 dark:text-gray-400 mt-2">
-            Comprehensive financial analysis and reporting
+            Comprehensive financial analysis and reporting for {getPeriodDisplayName()}
           </p>
         </div>
         
-        <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
-          <SelectTrigger className="w-48">
-            <SelectValue placeholder="Select period" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="current-month">Current Month</SelectItem>
-            <SelectItem value="last-month">Last Month</SelectItem>
-            <SelectItem value="last-3-months">Last 3 Months</SelectItem>
-            <SelectItem value="ytd">Year to Date</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="flex gap-2">
+          {/* <Button 
+            variant="outline" 
+            onClick={handleGenerateSampleData}
+            className="text-sm"
+          >
+            Generate Sample Data
+          </Button> */}
+          <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
+            <SelectTrigger className="w-48">
+              <SelectValue placeholder="Select period" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="current-month">Current Month</SelectItem>
+              <SelectItem value="last-month">Last Month</SelectItem>
+              <SelectItem value="last-3-months">Last 3 Months</SelectItem>
+              <SelectItem value="ytd">Year to Date</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {/* Key Metrics */}
@@ -135,10 +193,10 @@ export function FinancialReports() {
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">${totalRevenue.toLocaleString()}</div>
+            <div className="text-2xl font-bold">${metrics.totalRevenue.toLocaleString()}</div>
             <p className="text-xs text-muted-foreground">
               <TrendingUp className="inline h-3 w-3 mr-1" />
-              From {filteredInvoices.length} invoices
+              From {invoices.filter(inv => inv.status === 'paid').length} paid invoices
             </p>
           </CardContent>
         </Card>
@@ -149,10 +207,10 @@ export function FinancialReports() {
             <TrendingDown className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">${totalExpenses.toLocaleString()}</div>
+            <div className="text-2xl font-bold">${metrics.totalExpenses.toLocaleString()}</div>
             <p className="text-xs text-muted-foreground">
               <TrendingDown className="inline h-3 w-3 mr-1" />
-              From {filteredExpenses.length} expenses
+              From {expenses.filter(exp => exp.type === 'expense').length} expenses
             </p>
           </CardContent>
         </Card>
@@ -163,11 +221,11 @@ export function FinancialReports() {
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className={`text-2xl font-bold ${netProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-              ${netProfit.toLocaleString()}
+            <div className={`text-2xl font-bold ${metrics.netProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+              ${metrics.netProfit.toLocaleString()}
             </div>
             <p className="text-xs text-muted-foreground">
-              {profitMargin.toFixed(1)}% profit margin
+              {metrics.profitMargin.toFixed(1)}% profit margin
             </p>
           </CardContent>
         </Card>
@@ -179,10 +237,10 @@ export function FinancialReports() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              ${invoices.filter(inv => inv.status === 'sent').reduce((sum, inv) => sum + inv.total, 0).toLocaleString()}
+              ${metrics.outstandingAmount.toLocaleString()}
             </div>
             <p className="text-xs text-muted-foreground">
-              {invoices.filter(inv => inv.status === 'sent').length} pending invoices
+              {metrics.outstandingInvoices} pending invoices
             </p>
           </CardContent>
         </Card>
@@ -205,10 +263,23 @@ export function FinancialReports() {
                   Revenue, expenses, and profit analysis over time
                 </CardDescription>
               </div>
-              <Button onClick={() => handleExportPDF('Profit & Loss')}>
-                <Download className="w-4 h-4 mr-2" />
-                Export PDF
-              </Button>
+              <div className="flex gap-2">
+                <Button 
+                  variant="outline" 
+                  onClick={() => handleExportCSV('profit-loss')}
+                  disabled={isExporting}
+                >
+                  <FileSpreadsheet className="w-4 h-4 mr-2" />
+                  Export CSV
+                </Button>
+                <Button 
+                  onClick={() => handleExportPDF('Profit & Loss')}
+                  disabled={isExporting}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  {isExporting ? 'Exporting...' : 'Export PDF'}
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -219,7 +290,7 @@ export function FinancialReports() {
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="month" />
                       <YAxis />
-                      <Tooltip />
+                      <Tooltip formatter={(value) => [`$${value.toLocaleString()}`, '']} />
                       <Line dataKey="revenue" stroke="#3B82F6" name="Revenue" strokeWidth={2} />
                       <Line dataKey="expenses" stroke="#EF4444" name="Expenses" strokeWidth={2} />
                       <Line dataKey="profit" stroke="#10B981" name="Profit" strokeWidth={2} />
@@ -229,23 +300,29 @@ export function FinancialReports() {
 
                 <div>
                   <h3 className="font-semibold mb-4">Expense Breakdown</h3>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <PieChart>
-                      <Pie
-                        data={categoryData}
-                        cx="50%"
-                        cy="50%"
-                        outerRadius={80}
-                        dataKey="value"
-                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                      >
-                        {categoryData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                      </Pie>
-                      <Tooltip />
-                    </PieChart>
-                  </ResponsiveContainer>
+                  {categoryData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={300}>
+                      <PieChart>
+                        <Pie
+                          data={categoryData}
+                          cx="50%"
+                          cy="50%"
+                          outerRadius={80}
+                          dataKey="value"
+                          label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                        >
+                          {categoryData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(value) => [`$${value.toLocaleString()}`, '']} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex items-center justify-center h-[300px] text-gray-500">
+                      No expense data available for the selected period
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -255,33 +332,33 @@ export function FinancialReports() {
                   <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
                     <div className="text-sm text-blue-600 dark:text-blue-400">Total Revenue</div>
                     <div className="text-2xl font-bold text-blue-900 dark:text-blue-100">
-                      ${totalRevenue.toLocaleString()}
+                      ${metrics.totalRevenue.toLocaleString()}
                     </div>
                   </div>
                   <div className="p-4 bg-red-50 dark:bg-red-900/20 rounded-lg">
                     <div className="text-sm text-red-600 dark:text-red-400">Total Expenses</div>
                     <div className="text-2xl font-bold text-red-900 dark:text-red-100">
-                      ${totalExpenses.toLocaleString()}
+                      ${metrics.totalExpenses.toLocaleString()}
                     </div>
                   </div>
                   <div className={`p-4 rounded-lg ${
-                    netProfit >= 0 
+                    metrics.netProfit >= 0 
                       ? 'bg-green-50 dark:bg-green-900/20' 
                       : 'bg-red-50 dark:bg-red-900/20'
                   }`}>
                     <div className={`text-sm ${
-                      netProfit >= 0 
+                      metrics.netProfit >= 0 
                         ? 'text-green-600 dark:text-green-400' 
                         : 'text-red-600 dark:text-red-400'
                     }`}>
-                      Net {netProfit >= 0 ? 'Profit' : 'Loss'}
+                      Net {metrics.netProfit >= 0 ? 'Profit' : 'Loss'}
                     </div>
                     <div className={`text-2xl font-bold ${
-                      netProfit >= 0 
+                      metrics.netProfit >= 0 
                         ? 'text-green-900 dark:text-green-100' 
                         : 'text-red-900 dark:text-red-100'
                     }`}>
-                      ${Math.abs(netProfit).toLocaleString()}
+                      ${Math.abs(metrics.netProfit).toLocaleString()}
                     </div>
                   </div>
                 </div>
@@ -299,10 +376,23 @@ export function FinancialReports() {
                   Assets, liabilities, and equity overview
                 </CardDescription>
               </div>
-              <Button onClick={() => handleExportPDF('Balance Sheet')}>
-                <Download className="w-4 h-4 mr-2" />
-                Export PDF
-              </Button>
+              <div className="flex gap-2">
+                <Button 
+                  variant="outline" 
+                  onClick={() => handleExportCSV('invoices')}
+                  disabled={isExporting}
+                >
+                  <FileSpreadsheet className="w-4 h-4 mr-2" />
+                  Export CSV
+                </Button>
+                <Button 
+                  onClick={() => handleExportPDF('Balance Sheet')}
+                  disabled={isExporting}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  {isExporting ? 'Exporting...' : 'Export PDF'}
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -311,18 +401,18 @@ export function FinancialReports() {
                   <div className="space-y-3">
                     <div className="flex justify-between">
                       <span>Cash & Bank</span>
-                      <span className="font-medium">${(totalRevenue - totalExpenses).toLocaleString()}</span>
+                      <span className="font-medium">${(metrics.totalRevenue - metrics.totalExpenses).toLocaleString()}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Accounts Receivable</span>
                       <span className="font-medium">
-                        ${invoices.filter(inv => inv.status === 'sent').reduce((sum, inv) => sum + inv.total, 0).toLocaleString()}
+                        ${metrics.outstandingAmount.toLocaleString()}
                       </span>
                     </div>
                     <div className="flex justify-between border-t pt-2 font-semibold">
                       <span>Total Assets</span>
                       <span>
-                        ${(totalRevenue - totalExpenses + invoices.filter(inv => inv.status === 'sent').reduce((sum, inv) => sum + inv.total, 0)).toLocaleString()}
+                        ${(metrics.totalRevenue - metrics.totalExpenses + metrics.outstandingAmount).toLocaleString()}
                       </span>
                     </div>
                   </div>
@@ -336,15 +426,15 @@ export function FinancialReports() {
                       <span className="font-medium">$0</span>
                     </div>
                     <div className="flex justify-between">
-                      <span>Owner's Equity</span>
+                      <span>Owner&apos;s Equity</span>
                       <span className="font-medium">
-                        ${(totalRevenue - totalExpenses + invoices.filter(inv => inv.status === 'sent').reduce((sum, inv) => sum + inv.total, 0)).toLocaleString()}
+                        ${(metrics.totalRevenue - metrics.totalExpenses + metrics.outstandingAmount).toLocaleString()}
                       </span>
                     </div>
                     <div className="flex justify-between border-t pt-2 font-semibold">
                       <span>Total Liabilities & Equity</span>
                       <span>
-                        ${(totalRevenue - totalExpenses + invoices.filter(inv => inv.status === 'sent').reduce((sum, inv) => sum + inv.total, 0)).toLocaleString()}
+                        ${(metrics.totalRevenue - metrics.totalExpenses + metrics.outstandingAmount).toLocaleString()}
                       </span>
                     </div>
                   </div>
@@ -363,10 +453,23 @@ export function FinancialReports() {
                   Cash inflows and outflows analysis
                 </CardDescription>
               </div>
-              <Button onClick={() => handleExportPDF('Cash Flow')}>
-                <Download className="w-4 h-4 mr-2" />
-                Export PDF
-              </Button>
+              <div className="flex gap-2">
+                <Button 
+                  variant="outline" 
+                  onClick={() => handleExportCSV('expenses')}
+                  disabled={isExporting}
+                >
+                  <FileSpreadsheet className="w-4 h-4 mr-2" />
+                  Export CSV
+                </Button>
+                <Button 
+                  onClick={() => handleExportPDF('Cash Flow')}
+                  disabled={isExporting}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  {isExporting ? 'Exporting...' : 'Export PDF'}
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={400}>
@@ -374,7 +477,7 @@ export function FinancialReports() {
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="month" />
                   <YAxis />
-                  <Tooltip />
+                  <Tooltip formatter={(value) => [`$${value.toLocaleString()}`, '']} />
                   <Bar dataKey="revenue" fill="#3B82F6" name="Cash Inflow" />
                   <Bar dataKey="expenses" fill="#EF4444" name="Cash Outflow" />
                 </BarChart>
@@ -384,33 +487,33 @@ export function FinancialReports() {
                 <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
                   <div className="text-sm text-blue-600 dark:text-blue-400">Cash Inflow</div>
                   <div className="text-xl font-bold text-blue-900 dark:text-blue-100">
-                    ${totalRevenue.toLocaleString()}
+                    ${metrics.totalRevenue.toLocaleString()}
                   </div>
                 </div>
                 <div className="p-4 bg-red-50 dark:bg-red-900/20 rounded-lg">
                   <div className="text-sm text-red-600 dark:text-red-400">Cash Outflow</div>
                   <div className="text-xl font-bold text-red-900 dark:text-red-100">
-                    ${totalExpenses.toLocaleString()}
+                    ${metrics.totalExpenses.toLocaleString()}
                   </div>
                 </div>
                 <div className={`p-4 rounded-lg ${
-                  netProfit >= 0 
+                  metrics.netProfit >= 0 
                     ? 'bg-green-50 dark:bg-green-900/20' 
                     : 'bg-red-50 dark:bg-red-900/20'
                 }`}>
                   <div className={`text-sm ${
-                    netProfit >= 0 
+                    metrics.netProfit >= 0 
                       ? 'text-green-600 dark:text-green-400' 
                       : 'text-red-600 dark:text-red-400'
                   }`}>
                     Net Cash Flow
                   </div>
                   <div className={`text-xl font-bold ${
-                    netProfit >= 0 
+                    metrics.netProfit >= 0 
                       ? 'text-green-900 dark:text-green-100' 
                       : 'text-red-900 dark:text-red-100'
                   }`}>
-                    ${netProfit.toLocaleString()}
+                    ${metrics.netProfit.toLocaleString()}
                   </div>
                 </div>
               </div>
@@ -427,10 +530,23 @@ export function FinancialReports() {
                   VAT and tax obligations overview
                 </CardDescription>
               </div>
-              <Button onClick={() => handleExportPDF('Tax Summary')}>
-                <Download className="w-4 h-4 mr-2" />
-                Export PDF
-              </Button>
+              <div className="flex gap-2">
+                <Button 
+                  variant="outline" 
+                  onClick={() => handleExportCSV('expenses')}
+                  disabled={isExporting}
+                >
+                  <FileSpreadsheet className="w-4 h-4 mr-2" />
+                  Export CSV
+                </Button>
+                <Button 
+                  onClick={() => handleExportPDF('Tax Summary')}
+                  disabled={isExporting}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  {isExporting ? 'Exporting...' : 'Export PDF'}
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -439,11 +555,11 @@ export function FinancialReports() {
                   <div className="space-y-3">
                     <div className="flex justify-between">
                       <span>Total Sales</span>
-                      <span className="font-medium">${totalRevenue.toLocaleString()}</span>
+                      <span className="font-medium">${metrics.totalRevenue.toLocaleString()}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>VAT Output (10%)</span>
-                      <span className="font-medium">${(totalRevenue * 0.1).toLocaleString()}</span>
+                      <span className="font-medium">${(metrics.totalRevenue * 0.1).toLocaleString()}</span>
                     </div>
                   </div>
                 </div>
@@ -453,11 +569,11 @@ export function FinancialReports() {
                   <div className="space-y-3">
                     <div className="flex justify-between">
                       <span>Total Purchases</span>
-                      <span className="font-medium">${totalExpenses.toLocaleString()}</span>
+                      <span className="font-medium">${metrics.totalExpenses.toLocaleString()}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>VAT Input (10%)</span>
-                      <span className="font-medium">${(totalExpenses * 0.1).toLocaleString()}</span>
+                      <span className="font-medium">${(metrics.totalExpenses * 0.1).toLocaleString()}</span>
                     </div>
                   </div>
                 </div>
@@ -468,7 +584,7 @@ export function FinancialReports() {
                 <div className="flex justify-between text-xl font-bold">
                   <span>Net VAT Due:</span>
                   <span className="text-yellow-800 dark:text-yellow-200">
-                    ${((totalRevenue - totalExpenses) * 0.1).toLocaleString()}
+                    ${((metrics.totalRevenue - metrics.totalExpenses) * 0.1).toLocaleString()}
                   </span>
                 </div>
                 <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-2">

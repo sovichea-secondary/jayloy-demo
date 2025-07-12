@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useData } from '@/contexts/DataContext';
 import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
+import { ExpenseItemsManager } from './ExpenseItemsManager';
 
 const expenseSchema = z.object({
   vendor: z.string().min(1, 'Vendor name is required'),
@@ -58,7 +59,7 @@ export function ExpenseForm({ expense, initialData, receiptUrl, onSaved }: Expen
       description: expense?.description || initialData?.description || '',
       category: expense?.category || 'Other',
       tax: expense?.tax || 0,
-      type: expense?.type || initialData?.type?.toLowerCase() || 'expense',
+      type: expense?.type || (initialData?.type || 'expense').toLowerCase(),
       currency: expense?.currency || initialData?.currency || 'USD',
     },
   });
@@ -71,6 +72,7 @@ export function ExpenseForm({ expense, initialData, receiptUrl, onSaved }: Expen
         ...data,
         receiptUrl: receiptUrl || expense?.receiptUrl,
         receiptData: initialData,
+        items: expense?.items || initialData?.items || [],
       };
 
       if (expense) {
@@ -97,6 +99,22 @@ export function ExpenseForm({ expense, initialData, receiptUrl, onSaved }: Expen
               Review and edit the information extracted from your receipt
             </CardDescription>
           </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <span className="font-medium">Total Items:</span> {initialData.items?.length || 0}
+              </div>
+              <div>
+                <span className="font-medium">Total Amount:</span> {initialData.currency} {initialData.total_amount?.toFixed(2)}
+              </div>
+              <div>
+                <span className="font-medium">Date:</span> {initialData.date}
+              </div>
+              <div>
+                <span className="font-medium">Type:</span> {initialData.type?.charAt(0).toUpperCase() + initialData.type?.slice(1)}
+              </div>
+            </div>
+          </CardContent>
         </Card>
       )}
 
@@ -136,7 +154,7 @@ export function ExpenseForm({ expense, initialData, receiptUrl, onSaved }: Expen
               name="amount"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Amount</FormLabel>
+                  <FormLabel>Total Amount</FormLabel>
                   <FormControl>
                     <Input 
                       type="number" 
@@ -259,6 +277,15 @@ export function ExpenseForm({ expense, initialData, receiptUrl, onSaved }: Expen
               </FormItem>
             )}
           />
+
+          {/* Items Manager */}
+          {(expense?.items?.length > 0 || initialData?.items?.length > 0) && (
+            <ExpenseItemsManager
+              expenseId={expense?.id || 'new'}
+              items={expense?.items || initialData?.items || []}
+              currency={form.watch('currency')}
+            />
+          )}
 
           <div className="flex justify-end space-x-4">
             <Button

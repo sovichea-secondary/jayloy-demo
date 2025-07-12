@@ -17,13 +17,11 @@ export function BankReconciliation() {
     const file = event.target.files?.[0];
     if (file) {
       setUploadedFile(file);
-      // Simulate CSV parsing and add mock transactions
       simulateCSVImport();
     }
   };
 
   const simulateCSVImport = () => {
-    // Add some mock bank transactions
     const mockTransactions = [
       {
         date: '2024-01-15',
@@ -208,7 +206,6 @@ export function BankReconciliation() {
 function TransactionCard({ transaction, invoices, expenses, onMatch }: any) {
   const [showMatches, setShowMatches] = useState(false);
 
-  // Find potential matches
   const potentialInvoiceMatches = invoices.filter((invoice: any) => 
     Math.abs(invoice.total - Math.abs(transaction.amount)) < 1 && transaction.type === 'credit'
   );

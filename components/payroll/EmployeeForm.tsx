@@ -46,7 +46,6 @@ export function EmployeeForm({ employee, onSaved }: EmployeeFormProps) {
   const watchedSalary = form.watch('baseSalary');
   const watchedAllowances = form.watch('allowances');
 
-  // Calculate deductions (Cambodia rates)
   const grossSalary = watchedSalary + watchedAllowances;
   const nssfDeduction = Math.min(grossSalary * 0.04, 200); // 4% capped at $200
   const taxableIncome = grossSalary - nssfDeduction;

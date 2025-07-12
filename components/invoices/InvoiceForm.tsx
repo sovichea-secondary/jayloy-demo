@@ -79,6 +79,10 @@ export function InvoiceForm({ invoice, onSaved }: InvoiceFormProps) {
     try {
       const invoiceData = {
         ...data,
+        items: data.items.map((item, index) => ({
+          ...item,
+          id: `item-${Date.now()}-${index}`,
+        })),
         subtotal,
         tax,
         total,
@@ -99,15 +103,9 @@ export function InvoiceForm({ invoice, onSaved }: InvoiceFormProps) {
     }
   };
 
-  const handleExportPDF = () => {
-    // Simulate PDF export
-    alert('PDF export functionality would be implemented here');
-  };
-
   return (
     <Form {...form}>
       <form className="space-y-6">
-        {/* Customer Information */}
         <Card>
           <CardHeader>
             <CardTitle>Customer Information</CardTitle>
@@ -392,7 +390,6 @@ export function InvoiceForm({ invoice, onSaved }: InvoiceFormProps) {
 
           <Button
             type="button"
-            onClick={handleExportPDF}
             variant="outline"
           >
             <Download className="w-4 h-4 mr-2" />

@@ -6,7 +6,7 @@ import { Providers } from '@/components/providers/Providers';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'JayLoy - Modern Accounting for Cambodia',
+  title: 'JayLoy',
   description: 'Complete accounting solution for small businesses in Cambodia',
 };
 
